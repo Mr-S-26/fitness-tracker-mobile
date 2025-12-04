@@ -321,66 +321,58 @@ export interface EquipmentTypeReference {
 // =====================================================
 
 export interface OnboardingFormData {
-  // Step 2: Goals
-  primary_goal: PrimaryGoal | ''
-  specific_goals: string
-  target_date?: string
+  // --- EXISTING FIELDS ---
+  age: number;
+  sex: 'male' | 'female';
+  weight_kg: number;
+  height_cm: number;
+  primary_goal: string;
+  training_experience: string;
+  years_training?: number;
   
-  // Step 3: Experience
-  training_experience: TrainingExperience | ''
-  years_training: number
-  previous_programs: string
+  // --- UPDATED / NEW FIELDS ---
   
-  // Step 4: Schedule
+  // Schedule & Logistics
   available_days_per_week: number;
-  selected_days?: string[];
-  session_duration_minutes: number;
+  session_duration?: number;
+  training_location?: 'gym' | 'home';
+  preferred_time?: string;
   
-  // ✅ UPDATED: Removed preferred_training_times, added new fields
-  preferred_workout_time?: string; // e.g. "07:00"
-  reminders_enabled?: boolean;
-  push_subscription_data?: any; // Optional JSON
   
-  // Step 5: Equipment
-  training_location: TrainingLocation | ''
-  available_equipment: string[]
-  
-  // Step 6: Injuries
-  current_injuries: Array<{
-    body_part: string
-    description: string
-    severity: InjurySeverity
-    occurred_at: string
-  }>
-  movement_restrictions: string
-  
-  // Step 7: Body Metrics
-  height_cm: number
-  weight_kg: number
-  target_weight_kg?: number; // ✅ NEW
-  body_fat_percentage?: number
+  // Equipment (Array of strings)
+  available_equipment?: string[]; 
+
+  // Strategy
+  focus_areas?: string[];
   
   // Strength Stats (Optional)
-  estimated_1rm?: {
-    bench_press?: number;
-    squat?: number;
-    deadlift?: number;
-    overhead_press?: number;
-  };
+  strength_type?: 'bodyweight' | 'weighted';
+  target_weight?: string; // ✅ NEW (Requested for Step 1)
   
-  age: number
-  sex: 'male' | 'female' | 'other'
+  // Specific PRs (Weighted)
+  bench_press?: number;
+  squat?: number; // Weighted Squat 1RM
+  deadlift?: number;
+  overhead_press?: number;
+  max_weighted_pullup?: number; // ✅ NEW
+
+  // Specific Max Reps (Bodyweight)
+  max_pushups?: number;
+  max_pullups?: number; // Bodyweight reps
+  max_plank?: number; // seconds
+  max_squat_reps?: number; // ✅ NEW (Bodyweight squat reps)
+  max_squat_weight?: number; // Fixed type definition
+
+  // Safety
+  current_injuries?: Array<{
+    body_part: string;
+    description: string;
+    severity: string;
+    occurred_at: string;
+  }>;
   
-  // Step 8: Lifestyle
-  average_sleep_hours: number
-  stress_level: number
-  nutrition_tracking: boolean
-  dietary_preferences: DietaryPreference[]
-  
-  // Step 9: Preferences
-  coaching_style: CoachingStyle; 
-  motivation_type: MotivationType;
-  wants_voice_coaching: boolean;
+  // Meta
+  onboarding_completed?: boolean;
 }
 
 export interface BodyMeasurement {

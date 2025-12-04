@@ -28,6 +28,13 @@
     },
     "plugins": [
       "expo-router"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "b3bc2109-828d-4e76-9373-337f56747fcf"
+      }
+    },
+    "owner": "micosiaaas-organization"
   }
 }
