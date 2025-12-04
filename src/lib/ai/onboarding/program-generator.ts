@@ -32,44 +32,85 @@ export interface WorkoutProgram {
 // ==========================================
 function calculateLoad(exerciseName: string, equipment: string, formData: OnboardingFormData): number {
   const name = exerciseName.toLowerCase();
-  const goal = formData.primary_goal;
   
-  // 1. Determine Intensity Multiplier based on Goal
-  let multiplier = 0.70; // Default (Muscle Gain)
-  if (goal === 'strength') multiplier = 0.85;
-  if (goal === 'endurance' || goal === 'fat_loss') multiplier = 0.60;
+  // 1. Setup Baselines (Body Weight & Gender)
+  // If weight is missing, assume 70kg. 
+  // If sex is missing or female, use 0.65 multiplier for base strength estimates.
+  const bw = Number(formData.weight_kg) || 70; 
+  const isMale = formData.sex === 'male';
+  const genderMod = isMale ? 1.0 : 0.65; 
 
-  // 2. Retrieve User PRs (Default to 0 if missing)
-  const benchPr = Number(formData.bench_press) || 0;
-  const squatPr = Number(formData.squat) || 0; // Weighted squat or just squat
-  const deadliftPr = Number(formData.deadlift) || 0;
-  const ohpPr = Number(formData.overhead_press) || 0;
+  // 2. Determine Intensity Multiplier based on Goal
+  let intensity = 0.70; // Default (Muscle Gain)
+  if (formData.primary_goal === 'strength') intensity = 0.85;
+  if (formData.primary_goal === 'endurance' || formData.primary_goal === 'fat_loss') intensity = 0.60;
 
-  // 3. Logic Matching
-  // CHEST
+  // 3. Retrieve User PRs OR Estimate from Body Weight (The "Smart Fallback")
+  // If user entered a specific number, use it. If not, estimate based on BW * standard ratio.
+  const benchPr = Number(formData.bench_press) || (bw * 0.75 * genderMod);
+  const squatPr = Number(formData.squat) || (bw * 1.0 * genderMod);
+  const deadliftPr = Number(formData.deadlift) || (bw * 1.2 * genderMod);
+  const ohpPr = Number(formData.overhead_press) || (bw * 0.45 * genderMod);
+
+  // 4. Logic Matching
+
+  // --- MAIN COMPOUND LIFTS ---
+  // Chest
   if (name.includes('bench press')) {
-    if (equipment.includes('dumbbell')) return Math.round((benchPr * 0.35) * multiplier); // Per hand (approx 35% of barbell)
-    return Math.round(benchPr * multiplier);
+    // Dumbbells are harder than barbells, use ~35% of barbell max per hand
+    if (equipment.includes('dumbbell')) return Math.round((benchPr * 0.35) * intensity); 
+    return Math.round(benchPr * intensity);
   }
   
-  // LEGS
+  // Legs (Squat patterns)
   if (name.includes('squat')) {
-    if (equipment.includes('dumbbell') || name.includes('goblet')) return Math.round((squatPr * 0.4) * multiplier);
-    return Math.round(squatPr * multiplier);
+    // Goblet/Dumbbell squats are significantly lighter than Barbell Back Squats
+    if (name.includes('goblet') || equipment.includes('dumbbell')) return Math.round((squatPr * 0.4) * intensity);
+    return Math.round(squatPr * intensity);
   }
-  if (name.includes('deadlift')) return Math.round(deadliftPr * multiplier);
   
-  // SHOULDERS
+  // Back (Deadlift patterns)
+  if (name.includes('deadlift')) return Math.round(deadliftPr * intensity);
+  
+  // Shoulders (Pressing)
   if (name.includes('overhead') || name.includes('military') || name.includes('shoulder press')) {
-    if (equipment.includes('dumbbell')) return Math.round((ohpPr * 0.35) * multiplier);
-    return Math.round(ohpPr * multiplier);
+    if (equipment.includes('dumbbell')) return Math.round((ohpPr * 0.4) * intensity);
+    return Math.round(ohpPr * intensity);
   }
 
-  // DEFAULTS FOR ACCESSORIES (Conservative estimates)
-  if (equipment.includes('dumbbell')) return 10; // 10kg default for unknown DB moves
+  // --- ACCESSORY MOVEMENTS (Scaled off Estimates) ---
+  
+  // Back (Rows/Pulldowns) - Linked to Deadlift/BW strength (approx 20% of DL)
+  if (name.includes('row') || name.includes('pulldown')) {
+     return Math.round((deadliftPr * 0.20) * intensity); 
+  }
+
+  // Legs (Lunges/Step Ups) - Linked to Squat strength (approx 25% of Squat)
+  if (name.includes('lunge') || name.includes('split squat') || name.includes('step up')) {
+     return Math.round((squatPr * 0.25) * intensity); 
+  }
+
+  // Leg Press (Usually stronger than Squat, approx 1.5x)
+  if (name.includes('leg press')) {
+     return Math.round((squatPr * 1.5) * intensity);
+  }
+
+  // Arms (Biceps/Triceps) - Linked to OHP strength
+  if (name.includes('curl') || name.includes('tricep') || name.includes('extension')) {
+     return Math.round((ohpPr * 0.3) * intensity);
+  }
+  
+  // Isolation (Flys / Lateral Raises) - Very light (approx 15% of OHP)
+  if (name.includes('fly') || name.includes('raise') || name.includes('lateral')) {
+     return Math.round((ohpPr * 0.15) * intensity);
+  }
+
+  // --- SAFETY NET DEFAULTS (Based on BW now) ---
+  // Instead of static 10kg, use a tiny fraction of bodyweight (e.g. 15%)
+  if (equipment.includes('dumbbell')) return Math.max(5, Math.round(bw * 0.15)); 
   if (equipment.includes('barbell')) return 20; // Empty bar default
 
-  return 0; // Bodyweight or unknown
+  return 0; // Bodyweight only
 }
 
 // ==========================================
@@ -183,7 +224,7 @@ export async function generateAndSaveProgram(
       }
 
       if (dbExercise) {
-        // ✅ CALCULATE SUGGESTED WEIGHT
+        // ✅ CALCULATE SUGGESTED WEIGHT (Using new logic)
         const suggestedWeight = calculateLoad(dbExercise.name, dbExercise.equipment, formData);
         
         // ✅ USE AI REST TIME (OR DEFAULT)
@@ -198,8 +239,8 @@ export async function generateAndSaveProgram(
             exercise_id: dbExercise.id,
             set_number: i,
             target_reps: parseInt(ex.reps) || 10,
-            weight: suggestedWeight, // Pre-filled weight
-            rest_seconds: restTime // Saved to DB (needs UI support to show)
+            weight_kg: suggestedWeight, // Pre-filled weight
+            rest_seconds: restTime // Saved to DB
           });
         }
 
