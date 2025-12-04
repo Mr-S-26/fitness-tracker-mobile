@@ -7,55 +7,70 @@ import ExerciseLogger from '@/components/workout/ExerciseLogger';
 import { X } from 'lucide-react-native';
 
 export default function ActiveWorkoutScreen() {
-  const { id } = useLocalSearchParams(); // Get the workout ID from the URL
+  const { id } = useLocalSearchParams();
   const [workout, setWorkout] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchWorkoutDetails();
+    if (id) fetchWorkoutDetails();
   }, [id]);
 
   const fetchWorkoutDetails = async () => {
     try {
-      // In a real app, you'd fetch from 'workouts' table. 
-      // For now, we'll simulate a workout based on the ID or fetch a real one if you have data.
-      
-      // OPTION A: If you have data in Supabase, uncomment this:
-      /*
-      const { data, error } = await supabase
-        .from('workouts')
-        .select('*, workout_exercises(*, exercises(*))')
+      // 1. Fetch Session Info
+      const { data: sessionData, error: sessionError } = await supabase
+        .from('workout_sessions')
+        .select('*')
         .eq('id', id)
         .single();
-      if (error) throw error;
-      setWorkout(data);
-      */
 
-      // OPTION B: Dummy Data for Testing UI
+      if (sessionError) throw sessionError;
+
+      // 2. Fetch Logs + Exercise Names
+      const { data: logsData, error: logsError } = await supabase
+        .from('set_logs')
+        .select(`*, exercises (name)`)
+        .eq('session_id', id)
+        .order('id', { ascending: true }); // Keep order
+
+      if (logsError) throw logsError;
+
+      // 3. TRANSFORM DATA: Group flat logs into Exercises
+      const groupedExercises: any[] = [];
+      const exerciseMap = new Map();
+
+      logsData?.forEach((log) => {
+        const exId = log.exercise_id;
+        const exName = log.exercises?.name || 'Unknown Exercise';
+
+        if (!exerciseMap.has(exId)) {
+          const newGroup = {
+            exercise_id: exId,
+            exercise_name: exName,
+            sets: []
+          };
+          exerciseMap.set(exId, newGroup);
+          groupedExercises.push(newGroup);
+        }
+
+        exerciseMap.get(exId).sets.push({
+          set_number: log.set_number,
+          weight: log.weight, // ✅ This is the AI Calculated Weight
+          target_reps: log.target_reps,
+          rest_seconds: log.rest_seconds,
+          completed: false, 
+          log_id: log.id 
+        });
+      });
+
       setWorkout({
-        id: id,
-        name: 'Upper Body Power',
-        exercises: [
-          {
-            exercise_name: 'Bench Press',
-            sets: [
-              { set_number: 1, weight: 60, target_reps: 10, completed: false },
-              { set_number: 2, weight: 62.5, target_reps: 8, completed: false },
-              { set_number: 3, weight: 65, target_reps: 6, completed: false },
-            ]
-          },
-          {
-            exercise_name: 'Pull Ups',
-            sets: [
-              { set_number: 1, weight: 0, target_reps: 12, completed: false },
-              { set_number: 2, weight: 0, target_reps: 12, completed: false },
-            ]
-          }
-        ]
+        id: sessionData.id,
+        name: sessionData.name,
+        exercises: groupedExercises
       });
       
     } catch (error) {
-      console.error(error);
+      console.error("Error fetching workout details:", error);
     } finally {
       setLoading(false);
     }
@@ -69,31 +84,34 @@ export default function ActiveWorkoutScreen() {
     );
   }
 
+  if (!workout) {
+    return (
+      <View className="flex-1 bg-white justify-center items-center">
+        <Text>Workout not found.</Text>
+      </View>
+    );
+  }
+
   return (
     <View className="flex-1 bg-white">
-      {/* Hide the default header to use our custom one */}
       <Stack.Screen options={{ headerShown: false }} />
-      
       <SafeAreaView className="flex-1" edges={['top']}>
         {/* Header */}
         <View className="px-4 py-2 border-b border-gray-100 flex-row justify-between items-center">
           <View>
             <Text className="text-xs text-gray-400 font-bold uppercase tracking-wider">Active Session</Text>
-            <Text className="text-lg font-bold text-gray-900">{workout?.name}</Text>
+            <Text className="text-lg font-bold text-gray-900">{workout.name}</Text>
           </View>
           
-          <TouchableOpacity 
-            onPress={() => router.back()}
-            className="h-10 w-10 bg-gray-100 rounded-full items-center justify-center"
-          >
+          <TouchableOpacity onPress={() => router.back()} className="h-10 w-10 bg-gray-100 rounded-full items-center justify-center">
             <X size={20} color="black" />
           </TouchableOpacity>
         </View>
 
-        {/* The Logger Component you already built */}
+        {/* Logger Component */}
         <ExerciseLogger 
-          sessionId={typeof id === 'string' ? id : 'new-session'} 
-          exercises={workout?.exercises} 
+          sessionId={Array.isArray(id) ? id[0] : id} 
+          exercises={workout.exercises} 
         />
       </SafeAreaView>
     </View>

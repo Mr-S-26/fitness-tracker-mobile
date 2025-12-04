@@ -28,7 +28,52 @@ export interface WorkoutProgram {
 }
 
 // ==========================================
-// 2. MAIN GENERATOR FUNCTION
+// 2. HELPER: SMART WEIGHT CALCULATOR
+// ==========================================
+function calculateLoad(exerciseName: string, equipment: string, formData: OnboardingFormData): number {
+  const name = exerciseName.toLowerCase();
+  const goal = formData.primary_goal;
+  
+  // 1. Determine Intensity Multiplier based on Goal
+  let multiplier = 0.70; // Default (Muscle Gain)
+  if (goal === 'strength') multiplier = 0.85;
+  if (goal === 'endurance' || goal === 'fat_loss') multiplier = 0.60;
+
+  // 2. Retrieve User PRs (Default to 0 if missing)
+  const benchPr = Number(formData.bench_press) || 0;
+  const squatPr = Number(formData.squat) || 0; // Weighted squat or just squat
+  const deadliftPr = Number(formData.deadlift) || 0;
+  const ohpPr = Number(formData.overhead_press) || 0;
+
+  // 3. Logic Matching
+  // CHEST
+  if (name.includes('bench press')) {
+    if (equipment.includes('dumbbell')) return Math.round((benchPr * 0.35) * multiplier); // Per hand (approx 35% of barbell)
+    return Math.round(benchPr * multiplier);
+  }
+  
+  // LEGS
+  if (name.includes('squat')) {
+    if (equipment.includes('dumbbell') || name.includes('goblet')) return Math.round((squatPr * 0.4) * multiplier);
+    return Math.round(squatPr * multiplier);
+  }
+  if (name.includes('deadlift')) return Math.round(deadliftPr * multiplier);
+  
+  // SHOULDERS
+  if (name.includes('overhead') || name.includes('military') || name.includes('shoulder press')) {
+    if (equipment.includes('dumbbell')) return Math.round((ohpPr * 0.35) * multiplier);
+    return Math.round(ohpPr * multiplier);
+  }
+
+  // DEFAULTS FOR ACCESSORIES (Conservative estimates)
+  if (equipment.includes('dumbbell')) return 10; // 10kg default for unknown DB moves
+  if (equipment.includes('barbell')) return 20; // Empty bar default
+
+  return 0; // Bodyweight or unknown
+}
+
+// ==========================================
+// 3. MAIN GENERATOR FUNCTION
 // ==========================================
 
 export async function generateAndSaveProgram(
@@ -40,38 +85,37 @@ export async function generateAndSaveProgram(
   // 1. Calculate Nutrition
   const nutrition = calculateNutritionPlan(formData);
 
-  // 2. Filter Database for Valid Exercises (The Menu)
-  const userEquipment = formData.available_equipment || [];
-  
-  // Simple inclusion check
-  const has = (keyword: string) => userEquipment.some(item => item.toLowerCase().includes(keyword));
-  
-  // Build allowed types list
-  const allowedTypes = ['bodyweight']; 
-  if (has('dumbbell')) allowedTypes.push('dumbbell');
-  if (has('barbell')) allowedTypes.push('barbell');
-  if (has('cable') || has('band')) allowedTypes.push('cable');
-  if (has('gym') || has('commercial')) {
-      allowedTypes.push('machine', 'cable', 'barbell', 'dumbbell', 'assisted');
-  }
-
-  // Fetch the "Menu" for the AI
-  const { data: dbExercises } = await supabase
+  // 2. FETCH THE DATABASE (The "Menu" for the AI)
+  let exerciseQuery = supabase
     .from('exercises')
-    .select('id, name, equipment, primary_muscle') // ✅ Need ID for linking later
-    .in('equipment', allowedTypes);
+    .select('id, name, equipment, primary_muscle');
 
-  if (!dbExercises || dbExercises.length === 0) {
-    throw new Error("No exercises found for your equipment.");
+  // LOGIC: If 'Home', filter strictly. If 'Gym', give access to EVERYTHING.
+  if (formData.training_location === 'home') {
+    const userEquipment = formData.available_equipment || [];
+    const has = (keyword: string) => userEquipment.some(item => item.toLowerCase().includes(keyword));
+    
+    // Always allow bodyweight for home
+    const allowedTypes = ['bodyweight'];
+    if (has('dumbbell')) allowedTypes.push('dumbbell');
+    if (has('barbell')) allowedTypes.push('barbell');
+    if (has('band')) allowedTypes.push('cable'); 
+    
+    exerciseQuery = exerciseQuery.in('equipment', allowedTypes);
+  } 
+
+  const { data: availableExercises } = await exerciseQuery;
+
+  if (!availableExercises || availableExercises.length === 0) {
+    throw new Error("No exercises found. Please check your equipment settings.");
   }
 
   // 3. Generate Program via AI
-  const program = await generateAIProgram(formData, dbExercises);
+  const program = await generateAIProgram(formData, availableExercises);
 
   // 4. SAVE METADATA TO DATABASE
-  console.log('💾 Saving Metadata to Supabase...');
+  console.log('💾 Saving Metadata...');
 
-  // A. Save Profile
   const { error: profileError } = await supabase
     .from('user_fitness_profiles')
     .upsert({
@@ -79,7 +123,7 @@ export async function generateAndSaveProgram(
       primary_goal: formData.primary_goal,
       experience_level: formData.training_experience,
       days_per_week: formData.available_days_per_week,
-      session_duration: formData.session_duration, // ✅ Added duration
+      session_duration: formData.session_duration,
       equipment: formData.available_equipment,
       injuries: formData.current_injuries,
       onboarding_completed: true
@@ -87,7 +131,6 @@ export async function generateAndSaveProgram(
 
   if (profileError) throw new Error(`Profile Save Failed: ${profileError.message}`);
 
-  // B. Save Nutrition
   await supabase.from('nutrition_plans').insert({
     user_id: userId,
     calories: nutrition.daily_calories,
@@ -97,7 +140,6 @@ export async function generateAndSaveProgram(
     active: true
   });
 
-  // C. Save The "Master Plan" (For the Dashboard View)
   await supabase.from('ai_generated_programs').insert({
     user_id: userId,
     name: program.program_name,
@@ -106,16 +148,13 @@ export async function generateAndSaveProgram(
   });
 
   // ==========================================
-  // 5. INSTANTIATE WEEK 1 (THE FIX)
+  // 5. INSTANTIATE ACTIVE SESSIONS
   // ==========================================
-  console.log('🏗️ Building Active Sessions for Week 1...');
+  console.log('🏗️ Building Active Sessions...');
   
-  // We only generate the actual database rows for Week 1 to save space/time.
-  // Future weeks would be generated by a "Next Week" button in the app.
   const firstWeek = program.weeks[0];
 
   for (const workout of firstWeek.workouts) {
-    // 1. Create the Session Header
     const { data: session, error: sessionError } = await supabase
       .from('workout_sessions')
       .insert({
@@ -126,40 +165,48 @@ export async function generateAndSaveProgram(
       .select()
       .single();
 
-    if (sessionError || !session) {
-      console.error("Session Create Error", sessionError);
-      continue;
-    }
+    if (sessionError || !session) continue;
 
-    // 2. Create the Sets (The exercises inside the workout)
     for (const ex of workout.exercises) {
       
-      // ✅ SMART MATCHING: Find the ID from the "Menu" we fetched earlier
-      // We explicitly look for the exercise the AI named.
-      let dbExercise = dbExercises.find(e => 
+      // LOOKUP
+      let dbExercise = availableExercises.find(e => 
         e.name.toLowerCase() === ex.exercise_name.toLowerCase()
       );
 
-      // ⚠️ Fallback: If AI made a slight typo (e.g. "Bench Press" vs "Barbell Bench Press")
       if (!dbExercise) {
-         dbExercise = dbExercises.find(e => 
-            e.name.toLowerCase().includes(ex.exercise_name.toLowerCase()) || 
-            ex.exercise_name.toLowerCase().includes(e.name.toLowerCase())
+         const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+         dbExercise = availableExercises.find(e => 
+            normalize(e.name).includes(normalize(ex.exercise_name)) || 
+            normalize(ex.exercise_name).includes(normalize(e.name))
          );
       }
 
       if (dbExercise) {
-        // Insert the rows that show up in the "Start Workout" screen
-        await supabase.from('set_logs').insert({
-          session_id: session.id,
-          exercise_id: dbExercise.id,
-          set_number: 1, // We just create one 'log entry' per exercise to start
-          target_reps: parseInt(ex.reps) || 10,
-          weight: 0,
-          // You could loop here if you want to pre-create 3 rows for 3 sets
-        });
+        // ✅ CALCULATE SUGGESTED WEIGHT
+        const suggestedWeight = calculateLoad(dbExercise.name, dbExercise.equipment, formData);
+        
+        // ✅ USE AI REST TIME (OR DEFAULT)
+        const restTime = ex.rest_seconds || 60;
+
+        const targetSets = ex.sets || 3;
+        const setRows = [];
+
+        for (let i = 1; i <= targetSets; i++) {
+          setRows.push({
+            session_id: session.id,
+            exercise_id: dbExercise.id,
+            set_number: i,
+            target_reps: parseInt(ex.reps) || 10,
+            weight: suggestedWeight, // Pre-filled weight
+            rest_seconds: restTime // Saved to DB (needs UI support to show)
+          });
+        }
+
+        await supabase.from('set_logs').insert(setRows);
+        
       } else {
-        console.warn(`⚠️ Could not find DB match for AI exercise: ${ex.exercise_name}`);
+        console.warn(`⚠️ SKIPPED: AI hallucinated "${ex.exercise_name}"`);
       }
     }
   }
@@ -171,40 +218,50 @@ export async function generateAndSaveProgram(
 // 3. AI LOGIC
 // ==========================================
 
-async function generateAIProgram(formData: OnboardingFormData, validExercises: any[]): Promise<WorkoutProgram> {
+async function generateAIProgram(formData: OnboardingFormData, dbList: any[]): Promise<WorkoutProgram> {
   const apiKey = process.env.EXPO_PUBLIC_GROQ_API_KEY;
   if (!apiKey) throw new Error('Missing API Key');
 
-  // Create a clean list of names for the AI to pick from
-  const exerciseMenu = validExercises.map(e => `"${e.name}"`).join(', ');
+  const exerciseMenu = dbList.map(e => `"${e.name}"`).join(', ');
+  const dayCount = formData.available_days_per_week || 3;
+  const duration = formData.session_duration || 60;
+  
+  // Calculate target exercise count
+  const targetExerciseCount = Math.max(4, Math.floor(duration / 9)); 
+
+  // Rest Time Instructions based on Goal
+  let restInstruction = "Rest 60-90s between sets.";
+  if (formData.primary_goal === 'strength') restInstruction = "Rest 180-300s for compounds, 90s for accessories.";
+  if (formData.primary_goal === 'fat_loss') restInstruction = "Rest 30-60s to keep heart rate up.";
 
   const prompt = `
-    Create a 4-week workout program.
-    User Profile:
-    - Goal: ${formData.primary_goal}
-    - Level: ${formData.training_experience}
-    - Schedule: Exactly ${formData.available_days_per_week} days per week.
-    - Session Length: ${formData.session_duration} minutes.
+    You are a professional fitness coach. I have given you access to my database of exercises below.
     
-    STRICT RULES:
-    1. Create exactly ${formData.available_days_per_week} unique workouts per week.
-    2. ONLY use exercises from this list: [${exerciseMenu}].
-    3. Do NOT invent exercise names. Use the exact names provided.
-    4. Output valid JSON matching the schema.
+    DATABASE: [${exerciseMenu}]
 
-    JSON Schema:
+    USER: ${formData.primary_goal} goal, ${formData.training_experience} level.
+    SCHEDULE: ${dayCount} Days, ${duration} Mins/Session.
+    
+    INSTRUCTIONS:
+    1. Create exactly ${dayCount} unique workouts.
+    2. Each workout: ${targetExerciseCount}-${targetExerciseCount + 2} exercises.
+    3. USE EXACT NAMES from the database.
+    4. ${restInstruction}
+    5. Return pure JSON.
+
+    JSON STRUCTURE:
     {
-      "program_name": "string",
-      "program_overview": "string",
+      "program_name": "String",
+      "program_overview": "String",
       "weeks": [
         {
           "week_number": 1,
           "workouts": [
             {
-              "workout_name": "string",
               "day": "Monday",
+              "workout_name": "String",
               "exercises": [
-                { "exercise_name": "Exact Name From List", "sets": 3, "reps": "8-12", "rest_seconds": 60 }
+                { "exercise_name": "Exact Name", "sets": 3, "reps": "10", "rest_seconds": 90 }
               ]
             }
           ]
@@ -223,10 +280,10 @@ async function generateAIProgram(formData: OnboardingFormData, validExercises: a
       body: JSON.stringify({
         model: 'llama-3.3-70b-versatile',
         messages: [
-          { role: 'system', content: 'You are a fitness API. Output strictly valid JSON.' },
+          { role: 'system', content: 'You are a JSON generator.' },
           { role: 'user', content: prompt }
         ],
-        temperature: 0.1, // Low temp for stricter adherence to the list
+        temperature: 0.1,
         response_format: { type: 'json_object' }
       })
     });
@@ -235,20 +292,6 @@ async function generateAIProgram(formData: OnboardingFormData, validExercises: a
     return JSON.parse(data.choices[0].message.content);
   } catch (e) {
     console.error("AI Error", e);
-    // Fallback if AI fails
-    return {
-      program_name: "Basic Start",
-      program_overview: "Fallback program",
-      duration_weeks: 4,
-      weeks: [{
-        week_number: 1,
-        focus: "General",
-        workouts: [{
-          day: "Monday",
-          workout_name: "Full Body",
-          exercises: []
-        }]
-      }]
-    };
+    throw new Error("AI Generation Failed");
   }
 }

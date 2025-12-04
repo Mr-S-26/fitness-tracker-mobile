@@ -12,13 +12,15 @@ export default function StrategyStep() {
   // --- PR States ---
   // Weighted
   const [bench, setBench] = useState('');
-  const [squatWeight, setSquatWeight] = useState(''); // Weighted Squat
-  const [weightedPullup, setWeightedPullup] = useState(''); // Weighted Pullup
+  const [squat, setSquat] = useState(''); // Renamed to match calculator
+  const [deadlift, setDeadlift] = useState(''); // ✅ Added
+  const [overhead, setOverhead] = useState(''); // ✅ Added
+  const [weightedPullup, setWeightedPullup] = useState('');
 
   // Bodyweight
   const [pushups, setPushups] = useState('');
-  const [pullups, setPullups] = useState(''); // Bodyweight Pullups
-  const [squatReps, setSquatReps] = useState(''); // Bodyweight Squats
+  const [pullups, setPullups] = useState('');
+  const [squatReps, setSquatReps] = useState('');
   const [plank, setPlank] = useState('');
 
   const bodyParts = ['Chest', 'Back', 'Legs', 'Arms', 'Abs', 'Glutes', 'Shoulders'];
@@ -40,10 +42,14 @@ export default function StrategyStep() {
         ...params, 
         focus_areas: JSON.stringify(focusAreas),
         strength_type: strengthType,
-        // Pass Weighted Stats
+        
+        // ✅ CORRECT MAPPING FOR CALCULATOR
         bench_press: bench, 
-        max_squat_weight: squatWeight,
+        squat: squat, 
+        deadlift: deadlift,
+        overhead_press: overhead,
         max_weighted_pullup: weightedPullup,
+
         // Pass Bodyweight Stats
         max_pushups: pushups,
         max_pullups: pullups,
@@ -81,7 +87,7 @@ export default function StrategyStep() {
 
         {/* Section 2: Strength Baseline */}
         <Text className="text-2xl font-bold text-gray-900 mb-2">Current Strength</Text>
-        <Text className="text-gray-500 mb-6">Help us calibrate your starting weights.</Text>
+        <Text className="text-gray-500 mb-6">Enter your estimated 1 Rep Max (1RM).</Text>
 
         {/* Toggle Switch */}
         <View className="flex-row bg-gray-100 p-1 rounded-xl mb-6">
@@ -110,11 +116,13 @@ export default function StrategyStep() {
         {strengthType === 'weighted' ? (
           <View className="space-y-4">
             <Text className="text-sm text-yellow-600 bg-yellow-50 p-3 rounded-lg mb-2">
-              ⚠️ Enter your 1 Rep Max (1RM) estimates.
+              ⚠️ If you don't know a number, leave it blank (we'll assume beginner).
             </Text>
             <InputRow label="Bench Press" value={bench} onChange={setBench} unit="kg" />
-            <InputRow label="Squat (Weighted)" value={squatWeight} onChange={setSquatWeight} unit="kg" />
-            <InputRow label="Pull-up (Weighted)" value={weightedPullup} onChange={setWeightedPullup} unit="kg" />
+            <InputRow label="Squat" value={squat} onChange={setSquat} unit="kg" />
+            <InputRow label="Deadlift" value={deadlift} onChange={setDeadlift} unit="kg" />
+            <InputRow label="Overhead Press" value={overhead} onChange={setOverhead} unit="kg" />
+            <InputRow label="Weighted Pull-up" value={weightedPullup} onChange={setWeightedPullup} unit="kg" />
           </View>
         ) : (
           <View className="space-y-4">
