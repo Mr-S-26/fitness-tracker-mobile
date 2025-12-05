@@ -6,17 +6,20 @@ export type SetDifficulty = 'too_easy' | 'easy' | 'perfect' | 'challenging' | 'f
 export type FormQuality = 'perfect' | 'good' | 'poor'
 
 export interface Exercise {
-  id: string
-  name: string
-  category: string
-  equipment: string
-  primary_muscles: string[]
+  id: string;
+  name: string;
+  equipment: string;
+  primary_muscle: string;
+  category: 'compound' | 'isolation'; // existing
+  movement_type: 'push' | 'pull' | 'legs' | 'core'; // ✅ NEW
+  body_region: 'upper' | 'lower' | 'full';          // ✅ NEW
+  created_at: string;
   is_compound: boolean
 }
 
 export interface SetLog {
   id: string
-  weight: number
+  weight_kg: number
   target_reps: number
   actual_reps: number
   difficulty: SetDifficulty

@@ -9,12 +9,11 @@ export default function SignupScreen() {
   const [loading, setLoading] = useState(false);
 
   const handleSignup = async () => {
-    // 1. Basic Validation (Check inputs BEFORE calling Supabase)
+    // 1. Basic Validation
     if (!email || !password) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
-    
     if (password.length < 6) {
       Alert.alert('Weak Password', 'Password must be at least 6 characters long.');
       return;
@@ -22,32 +21,41 @@ export default function SignupScreen() {
 
     setLoading(true);
     
-    // 2. Call Supabase
+    // 2. Call Supabase Auth
     const { data, error } = await supabase.auth.signUp({ 
       email, 
       password,
     });
 
-    setLoading(false);
-
-    // 3. Handle Response
     if (error) {
       console.error("Signup Error:", error.message);
       Alert.alert('Signup Failed', error.message);
-    } else {
-      // Success! Redirect to Login page so the user can sign in properly.
-      // This ensures our "Traffic Cop" logic in login.tsx runs to check their onboarding status.
-      
-      if (data.session) {
-        // User created and auto-logged in (if email confirm is OFF)
-        Alert.alert('Success', 'Account created! Please log in.');
-        router.replace('/(auth)/login');
-      } else {
-        // User created but needs email verification
-        Alert.alert('Check your email', 'Please confirm your email address before logging in.');
-        router.replace('/(auth)/login');
+      setLoading(false);
+      return;
+    }
+
+    // 3. ✅ NEW STEP: Create the Profile Row in the Database
+    // We only do this if we have a user ID (which we do, because Confirm Email is OFF)
+    if (data.user) {
+      const { error: profileError } = await supabase
+        .from('user_fitness_profiles')
+        .insert([
+          { user_id: data.user.id } // Create a largely empty row linked to this user
+        ]);
+
+      if (profileError) {
+        console.error("Error creating profile:", profileError);
+        Alert.alert('Database Error', 'User created but profile failed to save.');
+        setLoading(false);
+        return;
       }
     }
+
+    setLoading(false);
+
+    // 4. Success! Redirect
+    Alert.alert('Success', 'Account created! Logging you in...');
+    router.replace('/(auth)/login');
   };
 
   return (

@@ -1,7 +1,8 @@
 import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Dumbbell, Flame, Calendar, ChevronRight } from 'lucide-react-native';
-import { useEffect, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
+import { useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase/client';
 import { router } from 'expo-router';
 
@@ -67,9 +68,11 @@ export default function DashboardScreen() {
     }
   };
 
-  useEffect(() => {
+  useFocusEffect(
+  useCallback(() => {
     fetchData();
-  }, []);
+  }, [])
+);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
