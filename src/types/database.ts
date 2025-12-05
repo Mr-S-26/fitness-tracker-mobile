@@ -73,55 +73,69 @@ export interface UserFitnessProfile {
   id: string
   user_id: string
   
-  // Goals
+  // --- Basic Bio (✅ Added these matching Step 1) ---
+  age?: number; 
+  gender?: 'male' | 'female';
+  
+  // --- Goals ---
   primary_goal?: PrimaryGoal
   specific_goals?: string
   target_date?: string
   
-  // Experience
-  training_experience?: TrainingExperience
+  // --- Experience ---
+  training_experience?: TrainingExperience // Matches onboarding 'experience'
   years_training?: number
   previous_programs?: string
   
-  // Schedule
+  // --- Schedule ---
   available_days_per_week?: number
-  session_duration_minutes?: number
-  preferred_training_times?: string[] // Keep optional for backward compat if needed
+  selected_days?: number[]; // ✅ Added: Stores specific days like [1, 3, 5]
   
-  // ✅ NEW: Reminder Fields
+  // Note: Onboarding uses 'session_duration', DB uses 'session_duration_minutes'
+  // We map them together here or usually strictly use the DB column name.
+  session_duration_minutes?: number; 
+  preferred_training_times?: string[] 
+  
+  // --- Reminders & Logistics ---
   preferred_workout_time?: string; 
   reminders_enabled?: boolean;
-  push_subscription_data?: any; // Stores the JSON subscription
+  push_subscription_data?: any; 
   
-  // Equipment
+  // --- Equipment & Location ---
   training_location?: TrainingLocation
   available_equipment?: string[]
   
-  // Limitations
+  // --- Strategy & Strength (✅ Added matching Step 3) ---
+  focus_areas?: string[];    // Stores ["Chest", "Arms"]
+  strength_type?: 'weighted' | 'bodyweight';
+  strength_stats?: Record<string, number | string>; // Stores { bench: 100, pushups: 20 }
+
+  // --- Limitations ---
+  injuries?: any[]; // ✅ Added: Matches the SQL column for JSONB injuries
   movement_restrictions?: string
   
-  // Body Metrics
+  // --- Body Metrics ---
   height_cm?: number
   weight_kg?: number
   target_weight_kg?: number;
   body_fat_percentage?: number
   
-  // Lifestyle
+  // --- Lifestyle ---
   average_sleep_hours?: number
   stress_level?: number
   nutrition_tracking?: boolean
   dietary_preferences?: DietaryPreference[]
   
-  // AI Preferences
+  // --- AI Preferences ---
   coaching_style?: CoachingStyle
   motivation_type?: MotivationType
   wants_voice_coaching?: boolean
   
-  // Status
+  // --- Status ---
   onboarding_completed?: boolean
   onboarding_completed_at?: string
   
-  // Metadata
+  // --- Metadata ---
   created_at: string
   updated_at: string
   last_assessment_date?: string
